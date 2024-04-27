@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "examgitlab.fullname" . }}-gateway
+  namespace: {{ .Values.gateway.namespace }}
+  labels:
+    {{- include "examgitlab.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.gateway.service.type }}
+  ports:
+    - port: {{ .Values.gateway.service.port }}
+      targetPort: {{ .Values.gateway.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "examgitlab.selectorLabels" . | nindent 4 }}

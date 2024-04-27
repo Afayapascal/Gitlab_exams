@@ -1,0 +1,101 @@
+configmapgateway:
+  - name: ORDERS_SERVICE_URL
+    key: http://orders:8000
+  - name: USERS_SERVICE_URL
+    key: http://users:8000
+
+persistenceorders:
+  enabled: true
+  name: orders-claim0
+  namespace: staging
+  accessMode: ReadWriteOnce
+  storageClass: ""
+  size: 100Mi
+  annotations: {}
+
+persistenceusers:
+  enabled: true
+  name: users-claim0
+  namespace: staging
+  accessMode: ReadWriteOnce
+  storageClass: ""
+  size: 100Mi
+  annotations: {}
+
+persistencegateway:
+  enabled: true
+  name: gateway-claim0
+  namespace: staging
+  accessMode: ReadWriteOnce
+  storageClass: ""
+  size: 100Mi
+  annotations: {}
+
+
+orders:
+   namespace: staging
+   replicas: 1
+   image: baranbartu/k-orders
+   tag: "latest"
+   pullPolicy: Always
+   pullSecret: ""
+
+   ingress:
+     enabled: false
+   autoscaling:
+     enabled: false
+   storage:
+     size: 10Gi
+   volumeMount:
+     - name: orders-claim0
+       mountpath: ./orders:/app
+
+   volume:
+     - name: orders-claim0
+
+users:
+   namespace: staging
+   replicas: 1
+   image: baranbartu/k-users
+   tag: "latest"
+   pullPolicy: Always
+   pullSecret: ""
+
+   ingress:
+     enabled: false
+   autoscaling:
+     enabled: false
+   storage:
+     size: 10Gi
+   volumeMount:
+     - name: users-claim0
+       mountpath: ./users:/app
+
+   volume:
+     - name: users-claim0
+
+
+gateway:
+   namespace: staging
+   replicas: 1
+   image: baranbartu/k-api-gateway
+   tag: "latest"
+   pullPolicy: Always
+   service:
+     type: NodePort
+     port: 8001
+     targetPort: 8000
+   
+   ingress:
+     enabled: false
+   autoscaling:
+     enabled: false
+   envFrom:
+     - configMapRef:
+         name: configmapgateway
+   volumeMount:
+     - name: gateway-claim0
+       mountpath: ./gateway:/app
+
+   volume:
+     - name: gateway-claim0

@@ -1,0 +1,32 @@
+
+
+{{- if and .Values.persistencegateway.enabled (not .Values.persistencegateway.existingClaim) }}
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: {{ template "examgitlab.fullname" . }}
+  namespace: {{ .Values.persistencegateway.namespace }}
+{{- with .Values.persistencegateway.annotations  }}
+  annotations:
+{{ toYaml . | indent 4 }}
+{{- end }}
+  labels:
+    app: {{ template "examgitlab.fullname" . }}
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+spec:
+  accessModes:
+    - {{ .Values.persistencegateway.accessMode | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.persistencegateway.size | quote }}
+{{- if .Values.persistencegateway.storageClass }}
+{{- if (eq "-" .Values.persistencegateway.storageClass) }}
+  storageClassName: ""
+{{- else }}
+  storageClassName: "{{ .Values.persistencegateway.storageClass }}"
+{{- end }}
+{{- end }}
+{{- end }}
+

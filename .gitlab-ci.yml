@@ -1,0 +1,241 @@
+variables:
+  # The domain used for the live deploy_prodment
+  IP_DEV: 52.19.151.66 #Remplacer par votre IP de la VM
+  IP_STAGING: 52.19.151.66 #Remplacer par votre IP de la VM
+  IP_PROD: 52.19.151.66 #Remplacer par votre IP de la VM
+  NODEPORT_DEV: 8000
+  NODEPORT_STAGING: 8000
+  NODEPORT_PROD: 8000
+  CI_REGISTRY_IMAGE2: registry.gitlab.com/afaya-group1/gitlab_exam/baranbartu/k-api-gateway
+  CI_REGISTRY_IMAGE1: registry.gitlab.com/afaya-group1/gitlab_exam/baranbartu/k-orders
+  CI_REGISTRY_IMAGE: registry.gitlab.com/afaya-group1/gitlab_exam/baranbartu/k-users
+  
+
+stages:
+  - test
+  - build users
+  - build orders
+  - build gateway
+  - run
+  - push
+  - deploy_dev
+  - deploy_qa
+  - deploy_staging
+  - deploy_prod
+
+test:
+  stage: test
+  image: registry.gitlab.com/afaya-group1/gitlab_exam/baranbartu/k-api-gateway
+  before_script:
+    # Show docker daemon info (optional, good for debugging)
+     - sudo apt install python3-pip -y
+  script:
+    - cd gateway/
+    - pip install -r requirements.txt
+    - sudo apt-get install -y python3-pip
+    - pip install fastapi
+    - pip install pytest
+    - pip install httpx
+#    - python3 -m pytest
+
+build users:
+  stage: build users
+  script:
+    # Build container image
+    - cd users/
+    - docker build -t "$CI_REGISTRY_IMAGE:latest" .
+    # Tag the container image from latest to the commit ref
+    - docker tag "$CI_REGISTRY_IMAGE:latest" "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+
+build orders:
+  stage: build orders
+  script:
+    # Build the container image orders
+    - cd orders/
+    - docker build -t "$CI_REGISTRY_IMAGE1:latest" .
+    # Tag the container image from latest to the commit ref
+    - docker tag "$CI_REGISTRY_IMAGE1:latest" "$CI_REGISTRY_IMAGE1:$CI_COMMIT_SHORT_SHA"
+
+build gateway:
+  stage: build gateway
+  variables:
+  script:
+    # Build the container image orders
+    - cd orders/
+    - docker build -t "$CI_REGISTRY_IMAGE2:latest" .
+    # Tag the container image from latest to the commit ref
+    - docker tag "$CI_REGISTRY_IMAGE2:latest" "$CI_REGISTRY_IMAGE2:$CI_COMMIT_SHORT_SHA"
+
+run:
+  stage: run
+  script:
+   # Build the container image
+    - docker run -d  --name usercontainer "$CI_REGISTRY_IMAGE:latest"
+    - sleep 10
+    - docker stop usercontainer
+    - docker rm usercontainer
+   # run ordercontainer
+    - docker run -d  --name ordercontainer "$CI_REGISTRY_IMAGE1:latest"
+    - sleep 10
+    - docker stop ordercontainer
+    - docker rm ordercontainer
+   # run gatewaycontainer
+    - docker run -d  --name gatewaycontainer "$CI_REGISTRY_IMAGE2:latest"   
+    - sleep 10
+    - docker stop gatewaycontainer
+    - docker rm gatewaycontainer
+
+
+
+push:
+  stage: push
+  before_script:
+    - docker info
+    # Login to the Gitlab Container registry
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+  script:
+    # Push the container image
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+    - docker push "$CI_REGISTRY_IMAGE1:$CI_COMMIT_SHORT_SHA"
+    - docker push "$CI_REGISTRY_IMAGE2:$CI_COMMIT_SHORT_SHA"
+    # If we are building a tag, push the `latest` container image tag too
+    - if [ ! -z "$CI_COMMIT_TAG" ]; then docker push "$CI_REGISTRY_IMAGE:latest"; fi
+
+
+stop_dev:
+  stage: deploy_dev
+  variables:
+    NAMESPACE: dev
+  when: manual
+  # Don't stop the "review" for master branch or tags,
+  # it is only for branches (so PRs (most of the time))
+  environment:
+    name: dev-$CI_BUILD_REF_NAME
+    action: stop
+  script:
+    - sudo helm uninstall app -n $NAMESPACE
+stop_qa:
+  stage: deploy_qa
+  variables:
+    NAMESPACE: qa
+  when: manual
+  # Don't stop the "review" for master branch or tags,
+  # it is only for branches (so PRs (most of the time))
+  environment:
+    name: qa-$CI_BUILD_REF_NAME
+    action: stop
+  script:
+    - sudo helm uninstall app -n $NAMESPACE
+
+stop_staging:
+  stage: deploy_staging
+  variables:
+    NAMESPACE: staging
+  when: manual
+  # Don't stop the "review" for master branch or tags,
+  # it is only for branches (so PRs (most of the time))
+  environment:
+    name: staging-$CI_BUILD_REF_NAME
+    action: stop
+  script:
+    - sudo helm uninstall app -n $NAMESPACE
+
+deploy_dev:
+  # Use the official docker image.
+  image: docker:latest
+  environment:
+    name: dev-$CI_BUILD_REF_NAME
+    url: http://$IP_DEV:$NODEPORT_DEV
+    on_stop: stop_dev
+  stage: deploy_dev
+  variables:
+    NAMESPACE: dev
+  services:
+    - docker:dind
+  # Default branch leaves tag empty (= latest tag)
+  # All other branches are tagged with the escaped branch name (commit ref slug)
+  script:
+    - rm -Rf .kube
+    - mkdir .kube
+    - ls
+    - cat $KUBE_CONFIG > .kube/config
+    - cat examgitlab/values-dev.yaml
+    - kubectl config get-contexts
+    - kubectl config use-context afaya-group1/gitlab_exam:examgitlab-cluster
+#    - helm upgrade --install app examgitlab/ --values=examgitlab/values.yaml --namespace $NAMESPACE --set image.repository="$CI_REGISTRY_IMAGE" --set image.tag="$CI_COMMIT_SHORT_SHA" --set service.nodeport="$NODEPORT_DEV"
+    - helm upgrade --install app examgitlab/ --values=examgitlab/values-dev.yaml --namespace $NAMESPACE
+
+deploy_qa:
+  # Use the official docker image.
+  image: docker:latest
+  environment:
+    name: qa-$CI_BUILD_REF_NAME
+    url: http://$IP_DEV:$NODEPORT_DEV
+    on_stop: stop_qa
+  stage: deploy_qa
+  variables:
+    NAMESPACE3: qa
+  services:
+    - docker:dind
+  # Default branch leaves tag empty (= latest tag)
+  # All other branches are tagged with the escaped branch name (commit ref slug)
+  script:
+    - rm -Rf .kube
+    - mkdir .kube
+    - ls
+    - cat $KUBE_CONFIG > .kube/config
+    - cat examgitlab/values-qa.yaml
+    - kubectl config get-contexts
+    - kubectl config use-context afaya-group1/gitlab_exam:examgitlab-cluster
+#    - helm upgrade --install app examgitlab/ --values=examgitlab/values.yaml --namespace $NAMESPACE --set image.repository="$CI_REGISTRY_IMAGE" --set image.tag="$CI_COMMIT_SHORT_SHA" --set service.node>
+    - helm upgrade --install app examgitlab/ --values=examgitlab/values-qa.yaml --namespace $NAMESPACE3
+
+deploy_staging:
+  # Use official docker image.
+  image: docker:latest
+  environment:
+    name: staging-$CI_BUILD_REF_NAME
+    url: http://$IP_STAGING:$NODEPORT_STAGING
+    on_stop: stop_staging
+  stage: deploy_staging
+  variables:
+    NAMESPACE1: staging
+
+  services:
+    - docker:dind
+  # Default branch leaves tag empty (= latest tag)
+  # All other branches are tagged with the escaped branch name (commit ref slug)
+  script:
+    - rm -Rf .kube
+    - mkdir .kube
+    - ls
+    - cat $KUBE_CONFIG > .kube/config
+    - cat examgitlab/values-staging.yaml
+    - kubectl config use-context afaya-group1/gitlab_exam:examgitlab-cluster
+ #   - sudo helm upgrade --install app fastapi/ --values=values.yml --namespace $NAMESPACE --set image.repository="$CI_REGISTRY_IMAGE" --set image.tag="$CI_COMMIT_SHORT_SHA" --set service.nodeport="$NODE>
+    - helm upgrade --install app examgitlab/ --values=examgitlab/values-staging.yaml --namespace $NAMESPACE1
+
+deploy_prod:
+  # Use the official docker image.
+  image: docker:latest
+  when: manual
+  environment:
+    name: prod
+    url: http://$IP_PROD:$NODEPORT_PROD
+  stage: deploy_prod
+  variables:
+    NAMESPACE2: prod
+  services:
+    - docker:dind
+  # Default branch leaves tag empty (= latest tag)
+  # All other branches are tagged with the escaped branch name (commit ref slug)
+  script:
+    - rm -Rf ~/.kube
+    - mkdir ~/.kube/
+    - ls
+    - cat $KUBE_CONFIG > ~/.kube/config
+    - kubectl config view --raw >~/.kube/config
+    - cat examgitlab/values-prod.yaml
+    - kubectl config use-context afaya-group1/gitlab_exam:examgitlab-cluster
+#    - sudo helm upgrade --install app fastapi/ --values=values.yml --namespace $NAMESPACE --set image.repository="$CI_REGISTRY_IMAGE" --set image.tag="$CI_COMMIT_SHORT_SHA" --set service.nodeport="$NODE>
+    - helm upgrade --install app examgitlab/ --values=examgitlab/values-prod.yaml --namespace $NAMESPACE2
